@@ -26,7 +26,7 @@ const REPORT_POLICY = [
   "frame-ancestors 'self'",
 ].join("; ");
 const SOURCE_HELP =
-  "Use a public GitHub HTML attachment URL: github.com/user-attachments/files/…/preview.html or github.com/user-attachments/assets/….";
+  "Use a public GitHub HTML attachment URL or a raw Gist HTML URL pinned to a 40-character revision.";
 
 class PreviewError extends Error {
   constructor(status, message) {
@@ -35,7 +35,7 @@ class PreviewError extends Error {
   }
 }
 
-function attachmentUrl(value) {
+function sourceUrl(value) {
   let url;
   try {
     url = new URL(value);
@@ -46,21 +46,26 @@ function attachmentUrl(value) {
   const asset = /^\/user-attachments\/assets\/[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(
     url.pathname,
   );
+  // Match the original Gist URL so normalization cannot hide explicit ports or path segments.
+  const gist =
+    /^https:\/\/gist\.githubusercontent\.com\/[a-z\d-]+\/[a-f\d]{20,32}\/raw\/[a-f\d]{40}\/([^/]+\.html?)$/i.exec(
+      value,
+    );
   let filename = "";
   try {
-    filename = file ? decodeURIComponent(file[1]) : "";
+    filename = decodeURIComponent(file?.[1] ?? gist?.[1] ?? "");
   } catch {
     throw new PreviewError(400, SOURCE_HELP);
   }
   if (
     url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
     url.port ||
     url.username ||
     url.password ||
     url.search ||
     url.hash ||
-    (!file && !asset) ||
+    /[\x00-\x1f\x7f]/.test(value) ||
+    !((url.hostname === "github.com" && (file || asset)) || gist) ||
     /[\\/\x00-\x1f\x7f]/.test(filename)
   ) {
     throw new PreviewError(400, SOURCE_HELP);
@@ -89,7 +94,7 @@ function document(body, title = "GitHub preview") {
 
 function landing(message = "") {
   return document(
-    `<main><h1>Open a GitHub preview.</h1><p>View an HTML attachment in your browser, with its interactions intact.</p>${message ? `<p class="error" role="alert">${escapeHtml(message)}</p>` : ""}<form action="/" method="get"><label for="url">GitHub attachment link</label><div><input id="url" name="url" type="url" placeholder="https://github.com/user-attachments/…" required><button type="submit">Open preview</button></div></form><small>The report stays on GitHub. Public, self-contained HTML up to 8 MiB.</small></main>`,
+    `<main><h1>Open a GitHub preview.</h1><p>View a public HTML attachment or versioned Gist file in your browser, with its interactions intact.</p>${message ? `<p class="error" role="alert">${escapeHtml(message)}</p>` : ""}<form action="/" method="get"><label for="url">GitHub HTML link</label><div><input id="url" name="url" type="url" placeholder="https://github.com/user-attachments/…" required><button type="submit">Open preview</button></div></form><small>The report stays on GitHub. Public, self-contained HTML up to 8 MiB.</small></main>`,
   );
 }
 
@@ -138,8 +143,12 @@ function htmlResponse(request, body, status = 200, policy = SHELL_POLICY) {
   });
 }
 
-async function loadAttachment(source) {
+async function loadReport(source) {
   const signal = AbortSignal.timeout(15_000);
+  const gist = source.hostname === "gist.githubusercontent.com";
+  const accept = gist
+    ? "text/html, text/plain;q=0.9, application/octet-stream;q=0.8"
+    : "text/html, application/octet-stream;q=0.9";
   let url = source;
   let response;
   for (let redirects = 0; redirects <= 3; redirects++) {
@@ -147,7 +156,7 @@ async function loadAttachment(source) {
     response = await fetch(url.href, {
       redirect: "manual",
       signal,
-      headers: { Accept: "text/html, application/octet-stream;q=0.9" },
+      headers: { Accept: accept },
     });
     if (![301, 302, 303, 307, 308].includes(response.status)) break;
     await response.body?.cancel();
@@ -155,7 +164,7 @@ async function loadAttachment(source) {
     if (!location || redirects === 3)
       throw new PreviewError(
         502,
-        "GitHub did not provide a usable attachment. Check the original link.",
+        "GitHub did not provide a usable report. Check the original link.",
       );
     const next = new URL(location, url);
     if (
@@ -168,7 +177,7 @@ async function loadAttachment(source) {
     ) {
       throw new PreviewError(
         502,
-        "GitHub did not redirect to a supported attachment host. Check the original link.",
+        "GitHub did not redirect to a supported download host. Check the original link.",
       );
     }
     url = next;
@@ -177,13 +186,17 @@ async function loadAttachment(source) {
     await response.body?.cancel();
     throw new PreviewError(
       response.status === 404 || response.status === 410 ? 404 : 502,
-      "This attachment is unavailable. Check that the original GitHub link opens without signing in.",
+      "This report is unavailable. Check that the original GitHub link opens without signing in.",
     );
   }
   const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
-  if (contentType !== "text/html" && contentType !== "application/octet-stream") {
+  if (
+    contentType !== "text/html" &&
+    contentType !== "application/octet-stream" &&
+    !(gist && contentType === "text/plain")
+  ) {
     await response.body?.cancel();
-    throw new PreviewError(415, "This attachment is not an HTML report.");
+    throw new PreviewError(415, "This source is not an HTML report.");
   }
   if (Number(response.headers.get("content-length")) > MAX_BYTES) {
     await response.body?.cancel();
@@ -192,7 +205,7 @@ async function loadAttachment(source) {
       "This report exceeds 8 MiB. Keep large recordings as GitHub attachment links.",
     );
   }
-  if (!response.body) throw new PreviewError(415, "The HTML attachment is empty.");
+  if (!response.body) throw new PreviewError(415, "The HTML report is empty.");
   const reader = response.body.getReader();
   const chunks = [];
   let length = 0;
@@ -213,15 +226,15 @@ async function loadAttachment(source) {
   } finally {
     reader.releaseLock();
   }
-  if (!length) throw new PreviewError(415, "The HTML attachment is empty.");
+  if (!length) throw new PreviewError(415, "The HTML report is empty.");
   const bytes = new Uint8Array(length);
   let offset = 0;
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  if (contentType === "application/octet-stream" && !isHtmlDocument(bytes)) {
-    throw new PreviewError(415, "This attachment is not a complete HTML document.");
+  if ((gist || contentType === "application/octet-stream") && !isHtmlDocument(bytes)) {
+    throw new PreviewError(415, "This source is not a complete HTML document.");
   }
   return bytes;
 }
@@ -252,7 +265,7 @@ export default {
     try {
       if (url.pathname === "/" && !url.searchParams.has("url"))
         return htmlResponse(request, landing());
-      const source = attachmentUrl(url.searchParams.get("url"));
+      const source = sourceUrl(url.searchParams.get("url"));
       if (url.pathname === "/") {
         const previewUrl = new URL(url.origin);
         previewUrl.searchParams.set("url", source.href);
@@ -264,7 +277,7 @@ export default {
           `${SHELL_POLICY}; script-src 'nonce-${nonce}'`,
         );
       }
-      return htmlResponse(request, await loadAttachment(source), 200, REPORT_POLICY);
+      return htmlResponse(request, await loadReport(source), 200, REPORT_POLICY);
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       const status = error instanceof PreviewError ? error.status : timeout ? 504 : 502;
@@ -273,7 +286,7 @@ export default {
           ? error.message
           : timeout
             ? "GitHub took too long to return the report. Try opening the preview again."
-            : "The attachment could not be loaded from GitHub. Try again or check the original link.";
+            : "The report could not be loaded from GitHub. Try again or check the original link.";
       if (url.pathname === "/render") {
         // Errors must remain visible inside the same sandbox as successful reports.
         return htmlResponse(
