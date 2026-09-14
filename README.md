@@ -28,6 +28,10 @@ Construct it with `new URLSearchParams({ url: attachmentUrl })` rather than
 concatenating an unescaped attachment URL. The viewer also provides a small form
 that constructs the link.
 
+While viewing a report, use **Copy preview link** in the header to share it. If
+clipboard access is unavailable, the viewer selects the link for you to copy
+manually. The shared address contains only the viewer and validated attachment.
+
 ## Cloudflare setup
 
 1. Create a Cloudflare account or sign in at <https://dash.cloudflare.com>.
