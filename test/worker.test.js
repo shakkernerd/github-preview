@@ -48,14 +48,15 @@ test("a public attachment is loaded through its storage redirect without visitor
   assert.match(response.headers.get("content-security-policy"), /connect-src 'none'/);
 });
 
-test("the preview entry point preserves attachment identity without fetching ahead of the frame", async () => {
+test("the preview entry point binds the frame and copy target to the validated attachment", async () => {
   const fetch = mock.method(globalThis, "fetch", () => {
     throw new Error("Unexpected fetch");
   });
   const source = "https://github.com/user-attachments/files/123/phone%20and%20desktop.html";
-  const response = await worker.fetch(
-    new Request(`https://preview.example/?${new URLSearchParams({ url: source })}`),
+  const request = new Request(
+    `https://preview.example/?incidental=omit&${new URLSearchParams({ url: source })}&url=${encodeURIComponent(ASSET)}`,
   );
+  const response = await worker.fetch(request);
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.ok(html.includes(`/render?${new URLSearchParams({ url: source })}`));
@@ -63,6 +64,22 @@ test("the preview entry point preserves attachment identity without fetching ahe
     html,
     /<iframe[^>]*sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"/,
   );
+  const link = html.match(/<input id="preview-link"[^>]*value="([^"]+)"[^>]*readonly/);
+  assert.ok(link, "a selectable preview link must be available as a clipboard fallback");
+  const preview = new URL(link[1]);
+  assert.equal(preview.origin, "https://preview.example");
+  assert.equal(preview.pathname, "/");
+  assert.deepEqual([...preview.searchParams], [["url", source]]);
+  const scriptPolicy = response.headers
+    .get("content-security-policy")
+    .split("; ")
+    .find((directive) => directive.startsWith("script-src "));
+  const nonce = /^script-src 'nonce-([A-Za-z0-9+/]+=*)'$/.exec(scriptPolicy)?.[1];
+  assert.ok(nonce, "the shell must allow only its nonce-authorized script");
+  assert.equal(Buffer.from(nonce, "base64").length, 16);
+  assert.deepEqual(html.match(/<script\b[^>]*>/g), [`<script nonce="${nonce}">`]);
+  const another = await worker.fetch(request);
+  assert.ok(!another.headers.get("content-security-policy").includes(`'nonce-${nonce}'`));
   assert.equal(fetch.mock.calls.length, 0);
 });
 
@@ -224,6 +241,8 @@ test("the service has a usable home page and supports read-only HTTP methods", a
   const root = await worker.fetch(new Request("https://preview.example/"));
   assert.equal(root.status, 200);
   assert.match(await root.text(), /GitHub attachment link/);
+  assert.match(root.headers.get("content-security-policy"), /default-src 'none'/);
+  assert.doesNotMatch(root.headers.get("content-security-policy"), /script-src/);
   const head = await worker.fetch(new Request("https://preview.example/", { method: "HEAD" }));
   assert.equal(head.status, 200);
   assert.equal(await head.text(), "");

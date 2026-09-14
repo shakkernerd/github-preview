@@ -81,7 +81,9 @@ function document(body, title = "GitHub preview") {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>${escapeHtml(title)}</title>
 <style>
 :root{color-scheme:light dark;font:15px/1.5 system-ui,sans-serif;background:light-dark(#fff,#17191d);color:light-dark(#22252b,#edf0f4)}
-*{box-sizing:border-box}body{margin:0}a{color:inherit;text-underline-offset:3px}main{max-width:640px;margin:12vh auto;padding:24px}h1{font-size:28px;letter-spacing:-.7px;margin:0 0 12px}p{color:light-dark(#58616e,#abb4c2)}label{display:block;margin:24px 0 8px;font-weight:600}form>div{display:flex;gap:8px;flex-wrap:wrap}input,button{font:inherit;padding:12px;border:1px solid light-dark(#cdd3db,#434b58);border-radius:8px}input{flex:1;min-width:180px;background:transparent;color:inherit}button{cursor:pointer;background:light-dark(#242b36,#e6ebf3);color:light-dark(#fff,#17191d)}small{display:block;margin-top:16px;color:light-dark(#66717e,#abb4c2)}header{height:48px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 16px;border-bottom:1px solid light-dark(#dce0e6,#373f4b)}header>a:first-child{text-decoration:none;font-weight:600;white-space:nowrap}header>a:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}iframe{display:block;border:0;width:100%;height:calc(100dvh - 48px)}.error{color:light-dark(#a72d27,#ffb3ad)}
+*{box-sizing:border-box}body{margin:0}a{color:inherit;text-underline-offset:3px}main{max-width:640px;margin:12vh auto;padding:24px}h1{font-size:28px;letter-spacing:-.7px;margin:0 0 12px}p{color:light-dark(#58616e,#abb4c2)}label{display:block;margin:24px 0 8px;font-weight:600}form>div{display:flex;gap:8px;flex-wrap:wrap}input,button{font:inherit;padding:12px;border:1px solid light-dark(#cdd3db,#434b58);border-radius:8px}input{flex:1;min-width:180px;background:transparent;color:inherit}button{cursor:pointer;background:light-dark(#242b36,#e6ebf3);color:light-dark(#fff,#17191d)}small{display:block;margin-top:16px;color:light-dark(#66717e,#abb4c2)}.error{color:light-dark(#a72d27,#ffb3ad)}
+.viewer{height:100dvh;display:flex;flex-direction:column}header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;padding:8px 16px;border-bottom:1px solid light-dark(#dce0e6,#373f4b)}header>a{text-decoration:none;font-weight:600;white-space:nowrap}header nav{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;margin-left:auto;font-size:13px}header button{font-size:13px;padding:5px 10px;white-space:nowrap}iframe{display:block;border:0;width:100%;flex:1;min-height:0}
+.share-feedback{padding:0 16px}#copy-status{margin:0}#copy-status:not(:empty){padding:8px 0}#copy-fallback{padding-bottom:12px}#copy-fallback label{margin:0 0 6px;font-size:13px}#preview-link{width:100%;min-width:0;font-size:13px}
 </style></head><body>${body}</body></html>`;
 }
 
@@ -91,10 +93,33 @@ function landing(message = "") {
   );
 }
 
-function viewer(source) {
+function viewer(source, previewUrl, nonce) {
   const path = `/render?${new URLSearchParams({ url: source.href })}`;
   return document(
-    `<header><a href="/">GitHub preview</a><a href="${escapeHtml(source.href)}" target="_blank" rel="noopener noreferrer">Original on GitHub ↗</a></header><iframe title="GitHub HTML preview" src="${escapeHtml(path)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>`,
+    `<div class="viewer">
+<header><a href="/">GitHub preview</a><nav aria-label="Preview actions"><a href="${escapeHtml(source.href)}" target="_blank" rel="noopener noreferrer">Original on GitHub ↗</a><button id="copy-preview" type="button">Copy preview link</button></nav></header>
+<div class="share-feedback"><p id="copy-status" role="status" aria-live="polite"></p><div id="copy-fallback" hidden><label for="preview-link">Preview link</label><input id="preview-link" type="text" value="${escapeHtml(previewUrl)}" readonly spellcheck="false" aria-describedby="copy-status"></div></div>
+<iframe title="GitHub HTML preview" src="${escapeHtml(path)}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+</div>
+<script nonce="${nonce}">
+const button = document.getElementById("copy-preview");
+const status = document.getElementById("copy-status");
+const fallback = document.getElementById("copy-fallback");
+const link = document.getElementById("preview-link");
+button.addEventListener("click", async () => {
+  status.textContent = "";
+  try {
+    await navigator.clipboard.writeText(link.value);
+    fallback.hidden = true;
+    status.textContent = "Preview link copied.";
+  } catch {
+    fallback.hidden = false;
+    status.textContent = "Copy the selected preview link below.";
+    link.focus();
+    link.select();
+  }
+});
+</script>`,
   );
 }
 
@@ -228,7 +253,17 @@ export default {
       if (url.pathname === "/" && !url.searchParams.has("url"))
         return htmlResponse(request, landing());
       const source = attachmentUrl(url.searchParams.get("url"));
-      if (url.pathname === "/") return htmlResponse(request, viewer(source));
+      if (url.pathname === "/") {
+        const previewUrl = new URL(url.origin);
+        previewUrl.searchParams.set("url", source.href);
+        const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+        return htmlResponse(
+          request,
+          viewer(source, previewUrl.href, nonce),
+          200,
+          `${SHELL_POLICY}; script-src 'nonce-${nonce}'`,
+        );
+      }
       return htmlResponse(request, await loadAttachment(source), 200, REPORT_POLICY);
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
