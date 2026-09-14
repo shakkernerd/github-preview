@@ -37,6 +37,22 @@ While viewing a report, use **Copy preview link** in the header to share it. If
 clipboard access is unavailable, the viewer selects the link for you to copy
 manually. The shared address contains only the viewer and validated source.
 
+## PR preview button
+
+Place the shared **Open preview** button above the screenshots and recording in a PR description or comment:
+
+```markdown
+[<img src="https://github-preview.shakker.dev/assets/open-preview-v1.png" alt="Open preview" width="218" height="44">](<your-preview-url>)
+```
+
+Replace `your-preview-url` with the encoded preview address described above.
+The high-resolution PNG has transparent corners and works on light and dark GitHub backgrounds.
+The image URL stays the same when the preview points to a different report or viewer.
+
+Wrangler deploys the button from `public/` as a static asset; report requests still use the Worker.
+Keep the versioned image available without changing its bytes; publish revised artwork under a new filename so existing PR buttons remain reliable.
+The button uses Lucide icons; their [license notices](public/assets/lucide-license.txt) accompany the image.
+
 ## Cloudflare setup
 
 1. Create a Cloudflare account or sign in at <https://dash.cloudflare.com>.
