@@ -1,8 +1,7 @@
 # GitHub preview
 
-Open a public GitHub HTML attachment as an interactive webpage. Reports stay on
-GitHub; this small Cloudflare Worker retrieves them on demand and displays them
-inside a sandboxed frame.
+Open a public GitHub HTML attachment or versioned Gist file as an interactive webpage.
+Reports stay on GitHub; this small Cloudflare Worker retrieves them on demand and displays them inside a sandboxed frame.
 
 ## Local development
 
@@ -13,24 +12,28 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:8787` and paste a public GitHub HTML attachment URL. Local
-development does not require a Cloudflare login. The viewer accepts GitHub
-`user-attachments/files/<id>/<name>.html` (or `.htm`) and
-`user-attachments/assets/<uuid>` URLs.
+Open `http://localhost:8787` and paste a public GitHub HTML source URL.
+Local development does not require a Cloudflare login.
+The viewer accepts:
+
+- GitHub attachments at `https://github.com/user-attachments/files/<id>/<name>.html` (or `.htm`) and `https://github.com/user-attachments/assets/<uuid>`.
+- Versioned Gist HTML files at `https://gist.githubusercontent.com/<owner>/<gist-id>/raw/<revision>/<name>.html` (or `.htm`).
+
+Gist IDs must contain 20–32 hexadecimal characters, and revisions must contain exactly 40 hexadecimal characters.
+Use the raw file URL pinned to its revision; Gist page links, unversioned raw URLs, and branch names are not accepted.
 
 A direct preview link has this shape:
 
 ```text
-https://<viewer-address>/?url=<URL-encoded GitHub attachment URL>
+https://<viewer-address>/?url=<URL-encoded GitHub HTML source URL>
 ```
 
-Construct it with `new URLSearchParams({ url: attachmentUrl })` rather than
-concatenating an unescaped attachment URL. The viewer also provides a small form
-that constructs the link.
+Construct it with `new URLSearchParams({ url: sourceUrl })` rather than concatenating an unescaped source URL.
+The viewer also provides a small form that constructs the link.
 
 While viewing a report, use **Copy preview link** in the header to share it. If
 clipboard access is unavailable, the viewer selects the link for you to copy
-manually. The shared address contains only the viewer and validated attachment.
+manually. The shared address contains only the viewer and validated source.
 
 ## Cloudflare setup
 
@@ -56,7 +59,7 @@ manually. The shared address contains only the viewer and validated attachment.
    `github-preview.<your-subdomain>.workers.dev` address. If the account has no
    Workers subdomain, follow Wrangler's setup prompt. A custom domain is optional.
 
-4. Open the deployed address with a real public HTML attachment, then use this
+4. Open the deployed address with a real public HTML report, then use this
    address when generating preview links in your visual-proof skill.
 
 Keep `.dev.vars`, `.env` files, and account credentials out of Git. This Worker
@@ -70,19 +73,21 @@ and [workers.dev addresses](https://developers.cloudflare.com/workers/configurat
 - Create a UTF-8 HTML document with inline CSS and JavaScript. Embed images and
   fonts as data URLs. Reports are limited to 8 MiB; large images or recordings
   can use absolute public GitHub attachment URLs.
-- Upload the report using the existing GitHub attachment workflow. Link its
-  GitHub URL through this viewer; the viewer does not upload or store artifacts.
+- Upload the report using the existing GitHub attachment workflow or an authorized public Gist upload.
+  Link the attachment URL or versioned raw Gist file URL through this viewer; the viewer does not upload or store artifacts.
 - Keep the captured baseline, exact revision, scenario, and original evidence
   links in the report. Hosting a report does not verify its claims.
 - Report JavaScript can operate on the report, but cannot access viewer storage
   or the surrounding page. External scripts, API requests, forms, and nested
   frames are blocked. Explicit source links can open in a separate tab.
-- Source URLs must be public GitHub attachment URLs without credentials, query
-  parameters, or fragments. Private attachments and arbitrary web URLs are not
-  supported. GitHub's temporary storage redirects are resolved afresh on each
-  request, bounded by a timeout and a response-size limit.
-- If GitHub removes an attachment, its preview becomes unavailable. The original
-  attachment is the authoritative copy.
+- Source URLs must use HTTPS and one of the supported GitHub paths, without credentials, query parameters, fragments, encoded slashes, or control characters.
+  Gist URLs must also omit explicit ports and pin a revision.
+  Private attachments and arbitrary web URLs are not supported.
+  Gist authors own approval for public sharing; the Worker fetches raw files anonymously without querying Gist visibility metadata or using a GitHub token.
+  Gist responses served as `text/plain` must contain an HTML document preamble; this MIME type is not accepted for attachments.
+  GitHub's temporary storage redirects are resolved afresh on each request, bounded by a timeout and a response-size limit.
+- If GitHub removes the source, its preview becomes unavailable.
+  The original source is the authoritative copy.
 
 Use a dedicated viewer hostname; keep it separate from applications that hold
 user credentials. The response sandbox also applies when `/render` is opened
