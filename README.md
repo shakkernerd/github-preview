@@ -3,6 +3,8 @@
 Open a public GitHub HTML attachment or versioned Gist file as an interactive webpage.
 Reports stay on GitHub; this small Cloudflare Worker retrieves them on demand and displays them inside a sandboxed frame.
 
+The hosted viewer is [github-preview.shakker.dev](https://github-preview.shakker.dev).
+
 ## Local development
 
 Use Node.js 22 or newer and pnpm. Wrangler is a project dependency.
@@ -49,15 +51,19 @@ manually. The shared address contains only the viewer and validated source.
    machine running the command. `whoami` confirms which account is available;
    there is no need to copy a token into this project or chat.
 
-3. When ready to publish the viewer, run:
+3. `wrangler.jsonc` configures `github-preview.shakker.dev` as the Worker's custom domain.
+   For another deployment, replace `routes[].pattern` with a hostname in an active Cloudflare zone owned by your account, or remove `routes` to use only a `workers.dev` address.
+   When ready to publish the viewer, run:
 
    ```sh
    pnpm deploy
    ```
 
    Select the intended account if prompted. Wrangler prints the resulting
-   `github-preview.<your-subdomain>.workers.dev` address. If the account has no
-   Workers subdomain, follow Wrangler's setup prompt. A custom domain is optional.
+   `github-preview.<your-subdomain>.workers.dev` address and configured custom domain.
+   Cloudflare creates the custom domain's DNS record and HTTPS certificate automatically.
+   If the account has no Workers subdomain, follow Wrangler's setup prompt.
+   The `workers.dev` address remains enabled so existing preview links keep working.
 
 4. Open the deployed address with a real public HTML report, then use this
    address when generating preview links in your visual-proof skill.
@@ -66,7 +72,7 @@ Keep `.dev.vars`, `.env` files, and account credentials out of Git. This Worker
 requires no secrets, storage bindings, or GitHub token.
 
 Official instructions: [Wrangler login](https://developers.cloudflare.com/workers/wrangler/commands/general/#login)
-and [workers.dev addresses](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/).
+and [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/).
 
 ## Report contract
 
