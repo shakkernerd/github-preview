@@ -42,7 +42,7 @@ manually. The shared address contains only the viewer and validated source.
 Place the shared **Open preview** button above the screenshots and recording in a PR description or comment:
 
 ```markdown
-[<img src="https://github-preview.shakker.dev/assets/open-preview-v1.png" alt="Open preview" width="218" height="44">](<your-preview-url>)
+[<img src="https://github-preview.shakker.dev/assets/open-preview-v1.png" alt="Open preview" width="158" height="32">](<your-preview-url>)
 ```
 
 Replace `your-preview-url` with the encoded preview address described above.
